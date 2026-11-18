@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>謎の生物名付けゲーム</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 15px;
+      text-align: center;
+      color: #333;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    input {
+      width: 80%;
+      padding: 10px;
+      margin: 8px 0;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+    button {
+      padding: 10px 18px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background-color: #4a90e2;
+      color: white;
+      font-weight: bold;
+      margin: 5px;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    .btn-draw {
+      width: 90%;
+      padding: 16px;
+      font-size: 20px;
+      background-color: #ff6b6b;
+      margin: 15px 0;
+    }
+    .btn-reset {
+      background-color: #888;
+      font-size: 12px;
+      padding: 6px 10px;
+    }
+    .header-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+    }
+    .players-list {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .player-badge {
+      background: #eef5ff;
+      border: 1px solid #b8d4ff;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    .card-area {
+      width: 260px;
+      height: 260px;
+      margin: 15px auto;
+      border: 3px solid #333;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #fafafa;
+      overflow: hidden;
+    }
+    .card-area img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .give-area {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px dashed #ccc;
+    }
+    .give-btn {
+      background-color: #2ecc71;
+      font-size: 14px;
+      padding: 8px 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ロビー画面 -->
+  <div id="lobby" class="container">
+    <h2>謎の生物名付けゲーム</h2>
+    <p style="font-size:13px; color:#666;">Discord等で通話を繋ぎながら遊んでね</p>
+    <input type="text" id="playerName" placeholder="あなたの名前（例: たろう）" maxlength="8">
+    <input type="text" id="roomId" placeholder="合言葉（例: himitsu123）" maxlength="20">
+    <br>
+    <button id="joinBtn">ルームに入る</button>
+  </div>
+
+  <!-- ゲーム画面 -->
+  <div id="game" class="container" style="display:none;">
+    <div class="header-info">
+      <span id="displayRoom">ルーム: -</span>
+      <span id="deckCount">山札残り: 0枚</span>
+      <button id="resetBtn" class="btn-reset">山札リセット</button>
+    </div>
+
+    <div id="playersList" class="players-list"></div>
+
+    <div class="card-area">
+      <img id="currentCardImg" src="" alt="山札をめくってください" style="display:none;">
+      <span id="cardPlaceholder" style="color:#999;">「めくる」を押してスタート</span>
+    </div>
+    <div style="font-weight:bold; color:#e67e22;">
+      場の溜まり枚数: <span id="pileCount">0</span> 枚
+    </div>
+
+    <button id="drawBtn" class="btn-draw">カードをめくる！</button>
+
+    <div class="give-area">
+      <div style="font-size:13px; margin-bottom:8px; color:#555;">▼ 正解した人に場のカードを渡す</div>
+      <div id="giveButtons"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+    import { getDatabase, ref, set, update, onValue, onDisconnect, remove, get } from "https://www.gstatic.com/firebasejs/13.4.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyB02MZmPv0J1vG4a-VtjBIwa8UooBG7PPI",
+      authDomain: "cardgame-89cba.firebaseapp.com",
+      databaseURL: "https://cardgame-89cba-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "cardgame-89cba",
+      storageBucket: "cardgame-89cba.firebasestorage.app",
+      messagingSenderId: "538373882077",
+      appId: "1:538373882077:web:203f3104531beb69641b34"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ★ここで使う画像ファイル名を指定（imagesフォルダ内のファイル）
+    const CARD_IMAGES = [
+      "images/1.png", "images/2.png", "images/3.png", "images/4.png",
+      "images/5.png", "images/6.png", "images/7.png", "images/8.png"
+    ];
+    const COPIES_PER_CARD = 5; // 1種類につき何枚山札に入れるか（8種×5枚=40枚）
+
+    let myId = "user_" + Math.random().toString(36).substring(2, 9);
+    let myName = "";
+    let currentRoom = "";
+    let roomRef = null;
+    let latestRoomData = {};
+
+    // シャッフル関数
+    function createShuffledDeck() {
+      let deck = [];
+      CARD_IMAGES.forEach(img => {
+        for (let i = 0; i < COPIES_PER_CARD; i++) {
+          deck.push(img);
+        }
+      });
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    // 入室処理
+    document.getElementById("joinBtn").addEventListener("click", async () => {
+      myName = document.getElementById("playerName").value.trim();
+      currentRoom = document.getElementById("roomId").value.trim();
+      if (!myName || !currentRoom) {
+        alert("名前と合言葉の両方を入力してください");
+        return;
+      }
+
+      roomRef = ref(db, "rooms/" + currentRoom);
+      const snapshot = await get(roomRef);
+
+      // ルームがまだ無ければ初期化
+      if (!snapshot.exists()) {
+        await set(roomRef, {
+          deck: createShuffledDeck(),
+          currentCard: "",
+          pileCount: 0,
+          players: {}
+        });
+      }
+
+      // 自分をプレイヤー一覧に登録（閉じたら自動削除）
+      const myPlayerRef = ref(db, `rooms/${currentRoom}/players/${myId}`);
+      await set(myPlayerRef, { name: myName, score: 0 });
+      onDisconnect(myPlayerRef).remove();
+
+      document.getElementById("lobby").style.display = "none";
+      document.getElementById("game").style.display = "block";
+      document.getElementById("displayRoom").textContent = "合言葉: " + currentRoom;
+
+      // リアルタイム同期開始
+      onValue(roomRef, (snap) => {
+        const data = snap.val();
+        if (!data) return;
+        latestRoomData = data;
+        renderGame(data);
+      });
+    });
+
+    // 画面更新
+    function renderGame(data) {
+      const deck = data.deck || [];
+      const pileCount = data.pileCount || 0;
+      const currentCard = data.currentCard || "";
+      const players = data.players || {};
+
+      document.getElementById("deckCount").textContent = `山札残り: ${deck.length}枚`;
+      document.getElementById("pileCount").textContent = pileCount;
+
+      const imgEl = document.getElementById("currentCardImg");
+      const placeholderEl = document.getElementById("cardPlaceholder");
+      if (currentCard) {
+        imgEl.src = currentCard;
+        imgEl.style.display = "block";
+        placeholderEl.style.display = "none";
+      } else {
+        imgEl.style.display = "none";
+        placeholderEl.style.display = "block";
+      }
+
+      // プレイヤー一覧と得点付与ボタンの描画
+      const playersListEl = document.getElementById("playersList");
+      const giveButtonsEl = document.getElementById("giveButtons");
+      playersListEl.innerHTML = "";
+      giveButtonsEl.innerHTML = "";
+
+      Object.entries(players).forEach(([uid, p]) => {
+        const badge = document.createElement("div");
+        badge.className = "player-badge";
+        badge.textContent = `${p.name}: ${p.score || 0}枚`;
+        playersListEl.appendChild(badge);
+
+        const btn = document.createElement("button");
+        btn.className = "give-btn";
+        btn.textContent = `${p.name} に渡す`;
+        btn.disabled = pileCount === 0;
+        btn.onclick = () => givePileToPlayer(uid, p.score || 0, pileCount);
+        giveButtonsEl.appendChild(btn);
+      });
+    }
+
+    // カードをめくる
+    document.getElementById("drawBtn").addEventListener("click", async () => {
+      const deck = latestRoomData.deck ? [...latestRoomData.deck] : [];
+      if (deck.length === 0) {
+        alert("山札がありません！リセットしてください。");
+        return;
+      }
+
+      // 連打防止（1秒間ボタン無効化）
+      const drawBtn = document.getElementById("drawBtn");
+      drawBtn.disabled = true;
+      setTimeout(() => { drawBtn.disabled = false; }, 1000);
+
+      const nextCard = deck.pop();
+      const newPileCount = (latestRoomData.pileCount || 0) + 1;
+
+      await update(roomRef, {
+        deck: deck,
+        currentCard: nextCard,
+        pileCount: newPileCount
+      });
+    });
+
+    // 正解者に場のカードを渡す
+    async function givePileToPlayer(uid, currentScore, pileCount) {
+      const updates = {};
+      updates[`players/${uid}/score`] = currentScore + pileCount;
+      updates["pileCount"] = 0;
+      updates["currentCard"] = "";
+      await update(roomRef, updates);
+    }
+
+    // リセット（再ゲーム）
+    document.getElementById("resetBtn").addEventListener("click", async () => {
+      if (!confirm("山札をシャッフルして全員の得点を0に戻しますか？")) return;
+      const players = latestRoomData.players || {};
+      const updates = {
+        deck: createShuffledDeck(),
+        currentCard: "",
+        pileCount: 0
+      };
+      Object.keys(players).forEach(uid => {
+        updates[`players/${uid}/score`] = 0;
+      });
+      await update(roomRef, updates);
+    });
+  </script>
+</body>
+</html>
